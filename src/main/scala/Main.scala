@@ -23,6 +23,4 @@ object Main {
       case Failure(exception) => println(s"Error starting server: ${exception.getMessage}")
     }
   }
-
-
 }

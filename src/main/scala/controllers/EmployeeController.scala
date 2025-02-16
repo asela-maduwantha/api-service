@@ -6,6 +6,7 @@ import org.apache.pekko.http.scaladsl.model.{StatusCodes, HttpEntity, ContentTyp
 import org.apache.pekko.http.scaladsl.server.Route
 import publisher.Publisher
 import org.json4s.jackson.Serialization.read
+import org.json4s.jackson.Serialization.write
 import org.json4s.{DefaultFormats, Formats}
 
 object EmployeeController {
@@ -13,12 +14,57 @@ object EmployeeController {
 
   val route: Route =
     pathPrefix("employee") {
-      post {
-        entity(as[String]) { jsonString =>
-          val employee = read[Employee](jsonString)
-          Publisher.createEmployee(employee)
-          complete(HttpEntity(ContentTypes.`text/plain(UTF-8)`, s"Employee event published for ${employee.name}"))
+      concat(
+        post {
+          entity(as[String]) { jsonString =>
+            val employee = read[Employee](jsonString)
+            val requestPayload = s"create:${write(employee)}"
+            Publisher.sendRequest(requestPayload) match {
+              case Some(response) =>
+                println(response)
+                complete(HttpEntity(ContentTypes.`application/json`, response))
+              case None =>
+                complete(StatusCodes.InternalServerError, "Failed to process create employee request")
+            }
+          }
+        },
+        get {
+          parameter("id") { id =>
+            val requestPayload = s"get:$id"
+            Publisher.sendRequest(requestPayload) match {
+              case Some(response) =>
+                println(response)
+                complete(HttpEntity(ContentTypes.`application/json`, response))
+              case None =>
+                complete(StatusCodes.InternalServerError, s"Failed to process get employee request for id: $id")
+            }
+          }
+        },
+        put {
+          entity(as[String]) { jsonString =>
+            val employee = read[Employee](jsonString)
+            val requestPayload = s"update:${write(employee)}"
+            Publisher.sendRequest(requestPayload) match {
+              case Some(response) =>
+                println(response)
+                complete(HttpEntity(ContentTypes.`application/json`, response))
+              case None =>
+                complete(StatusCodes.InternalServerError, "Failed to process update employee request")
+            }
+          }
+        },
+        delete {
+          parameter("id") { id =>
+            val requestPayload = s"delete:$id"
+            Publisher.sendRequest(requestPayload) match {
+              case Some(response) =>
+                println(response)
+                complete(HttpEntity(ContentTypes.`application/json`, response))
+              case None =>
+                complete(StatusCodes.InternalServerError, s"Failed to process delete employee request for id: $id")
+            }
+          }
         }
-      }
+      )
     }
 }

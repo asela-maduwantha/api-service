@@ -1,34 +1,64 @@
 package publisher
 
-import com.rabbitmq.client.Connection
+import com.rabbitmq.client.AMQP.BasicProperties
+import com.rabbitmq.client.{ DefaultConsumer, Envelope}
 import com.typesafe.config.ConfigFactory
 import config.RabbitMQConfig
-import dto.Employee
-import dto.Employee.toJson
-
-import java.time.LocalDate
-import scala.util.{Failure, Success, Try, Using}
-
+import java.util.UUID
+import java.util.concurrent.{ArrayBlockingQueue, TimeUnit}
+import scala.util.{Failure, Success, Using}
 
 object Publisher {
   private val config = ConfigFactory.load()
   private val rabbitmqConfig = config.getConfig("rabbitmq")
-
   private val QUEUE_NAME = rabbitmqConfig.getString("queueName")
 
-  def createEmployee(employee: Employee): Unit = {
-    Try(RabbitMQConfig.getConnectionFactory.newConnection()) match{
-      case Success(connection: Connection) =>
-        Using(connection.createChannel()){ channel =>
-          channel.queueDeclare(QUEUE_NAME, false, false, false, null)
+  def sendRequest(message: String): Option[String] = {
+    val result = Using.Manager { use =>
+      val connection = use(RabbitMQConfig.getConnectionFactory.newConnection())
+      val channel = use(connection.createChannel())
 
-          Try(channel.basicPublish("",QUEUE_NAME, null, Employee.toJson(employee).getBytes("UTF-8"))) match{
-            case Success(_) => println("data sent to the queue")
-            println(Employee.toJson(employee))
-            case Failure(exception) => println(s"Error Sending data ${exception.getMessage}")
+      val replyQueueName = channel.queueDeclare().getQueue
+      val correlationId  = UUID.randomUUID().toString
+
+      val props: BasicProperties = new BasicProperties.Builder()
+        .correlationId(correlationId)
+        .replyTo(replyQueueName)
+        .build()
+
+      channel.basicPublish("", QUEUE_NAME, props, message.getBytes("UTF-8"))
+      println(s"Request Sent to the queue: $message")
+
+      val responseQueue = new ArrayBlockingQueue[String](1)
+
+      val consumer = new DefaultConsumer(channel) {
+        override def handleDelivery(
+                                     consumerTag: String,
+                                     envelope: Envelope,
+                                     properties: BasicProperties,
+                                     body: Array[Byte]
+                                   ): Unit = {
+          if (properties.getCorrelationId == correlationId) {
+            responseQueue.offer(new String(body, "UTF-8"))
           }
         }
-      case Failure(exception) => println(s"Failed to create connection ${ exception.getMessage}")
+      }
+      channel.basicConsume(replyQueueName, true, consumer)
+
+      Option(responseQueue.poll(5, TimeUnit.SECONDS))
+    }
+
+    result match {
+      case Success(responseOpt) =>
+        responseOpt match {
+          case Some(response) => Some(response)
+          case None =>
+            println("RPC timed out.")
+            None
+        }
+      case Failure(exception) =>
+        println(s"RPC error: ${exception.getMessage}")
+        None
     }
   }
 }
