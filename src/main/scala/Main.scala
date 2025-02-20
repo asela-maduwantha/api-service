@@ -5,6 +5,7 @@ import org.apache.pekko
 import pekko.actor.typed.ActorSystem
 import pekko.actor.typed.scaladsl.Behaviors
 import pekko.http.scaladsl.Http
+
 import scala.util.{Failure, Success, Try}
 
 
@@ -12,7 +13,6 @@ object Main {
   def main(args: Array[String]): Unit = {
     val config = ConfigFactory.load()
     val server = config.getConfig("server")
-
     val port = server.getInt("port");
     val host = server.getString("host")
 

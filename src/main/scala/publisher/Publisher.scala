@@ -6,17 +6,16 @@ import com.typesafe.config.ConfigFactory
 import config.RabbitMQConfig
 import java.util.UUID
 import java.util.concurrent.{ArrayBlockingQueue, TimeUnit}
-import scala.util.{Failure, Success, Using}
 
 object Publisher {
   private val config = ConfigFactory.load()
   private val rabbitmqConfig = config.getConfig("rabbitmq")
   private val QUEUE_NAME = rabbitmqConfig.getString("queueName")
 
+  private val connection = RabbitMQConfig.getConnection.get
+  private val channel = connection.createChannel()
+
   def sendRequest(message: String): Option[String] = {
-    val result = Using.Manager { use =>
-      val connection = use(RabbitMQConfig.getConnectionFactory.newConnection())
-      val channel = use(connection.createChannel())
 
       val replyQueueName = channel.queueDeclare().getQueue
       val correlationId  = UUID.randomUUID().toString
@@ -27,7 +26,6 @@ object Publisher {
         .build()
 
       channel.basicPublish("", QUEUE_NAME, props, message.getBytes("UTF-8"))
-      println(s"Request Sent to the queue: $message")
 
       val responseQueue = new ArrayBlockingQueue[String](1)
 
@@ -47,18 +45,4 @@ object Publisher {
 
       Option(responseQueue.poll(5, TimeUnit.SECONDS))
     }
-
-    result match {
-      case Success(responseOpt) =>
-        responseOpt match {
-          case Some(response) => Some(response)
-          case None =>
-            println("RPC timed out.")
-            None
-        }
-      case Failure(exception) =>
-        println(s"RPC error: ${exception.getMessage}")
-        None
-    }
-  }
 }
